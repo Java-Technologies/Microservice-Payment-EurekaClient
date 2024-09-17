@@ -1,0 +1,64 @@
+package com.interviewasset.consumer;
+
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.interviewasset.dto.Order;
+import com.interviewasset.dto.User;
+import com.interviewasset.entity.Payment;
+import com.interviewasset.repo.PaymentRepo;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.Date;
+
+@Component
+public class OrderConsumer
+{
+
+    @Autowired
+    private RestTemplate restTemplate;
+    @Autowired
+    private PaymentRepo paymentRepo;
+
+    @KafkaListener(topics = "ORDER_PAYMENT_TOPIC")
+    public void processOrder(String jsonString)
+    {
+        try {
+            Order order =  new ObjectMapper().readValue(jsonString, Order.class);
+
+            Payment payment = Payment.builder()
+                    .payMode(order.getPaymentMode())
+                    .amount(order.getPrice())
+                    .paidDate(new Date())
+                    .userId(order.getUserId())
+                    .orderId(order.getOrderId())
+                    .build();
+
+            if(payment.getPayMode().equalsIgnoreCase("COD"))
+            {
+                payment.setPaymentStatus("PENDING");
+            }
+            else {
+                User user = restTemplate.getForObject("http://localhost:9393/users/"+payment.getUserId(),User.class);
+
+                if(payment.getAmount()>1000) // ideally it should be amount > what the use have in ho s bank account
+                {
+                    throw new RuntimeException("Insufficient amount");
+                }
+                else {
+                    payment.setPaymentStatus("PAID");
+
+                }
+            }
+
+        } catch (JsonProcessingException e) {
+            e.printStackTrace();
+        }
+    }
+
+
+}
+
